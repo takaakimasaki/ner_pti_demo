@@ -1,0 +1,30 @@
+---
+title: "Poverty"
+output: html_document
+date: "2024-07-29"
+---
+
+Load necessary packages and data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(here::here("vignettes","0.set_path.R"))
+pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2, raster, exactextractr, readxl)
+sf <- read_rds(here::here("data-clean","bounds.rds"))
+
+poverty_2021_22 <- read_xls(here::here("data-raw","poverty","pov_regionale.xls"))
+```
+
+Merge poverty data from 2021/22 at the ADM1 level
+```{r}
+#use this excel sheet to match the location names between the shapefile and dataset
+mt <- read_xlsx(here::here("data-raw","poverty","mt.xlsx"),sheet="adm1_2021_22")
+
+pov_2022 <- poverty_2021_22 %>%
+  left_join(., mt) %>%
+  dplyr::select(admin1Pcod, pov_2021_22, number_poor_2021_22)
+
+pov_out <- list(admin1_Region = sf$admin1_Region %>%
+                  left_join(., pov_2022) %>%
+                  st_drop_geometry)
+write_rds(pov_out, here("data-clean", "1-poverty.rds"), compress = 'gz')
+```

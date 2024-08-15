@@ -1,0 +1,96 @@
+---
+title: "PTI data compillation"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r eval = TRUE, echo = FALSE}
+conflictRules("tidyr", mask.ok = c("extract"))
+conflictRules("dplyr", mask.ok = c("filter", "lag", "select"))
+pacman::p_load(here, sf, tidyverse, writexl, janitor, openxlsx)
+
+admin <- readRDS(here("data-clean","bounds.rds")) 
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+from_pti_fldr <- here::here("data-clean")
+```
+
+
+## Load master data
+
+```{r}
+all_dta_export <- read_rds(here::here("data-clean","master_data.rds"))
+```
+
+## Calculate PTI
+
+##The PTI calculation
+Calculate PTI
+```{r eval = TRUE, echo = FALSE}
+admin3 <- all_dta_export$admin3_Commune %>% 
+  mutate(wrsi_90_long = ifelse(is.na(wrsi_90_long),0,wrsi_90_long))
+
+##now standard indicators
+###At the ADM1 level
+###ADM1
+admin1_std <- all_dta_export$admin1_Region %>% 
+  as.data.frame() 
+
+for(i in 8:dim(admin1_std)[2]) { 
+  admin1_std[,i] <- scale(admin1_std[,i], center = TRUE, scale = TRUE) %>% as.numeric()
+}
+summary(admin1_std$pov_2021_22)
+summary(admin1_std$number_poor_2021_22)
+admin1_std <- admin1_std %>%
+  dplyr::select(admin1Pcod, pov_2021_22_std = pov_2021_22, number_poor_2021_22_std = number_poor_2021_22)
+
+###At the ADM2 level
+admin2_std <- all_dta_export$admin2_District %>% 
+  as.data.frame() 
+for(i in 9:dim(admin2_std)[2]) { ##NEED TO CHANGE THIS EVERYTIME YOU ADD MORE VARIABLES!!
+  admin2_std[,i] <- scale(admin2_std[,i], center = TRUE, scale = TRUE) %>% as.numeric()
+  #data[,i] <- (data[,i] - mean(data[,i])) / sd(data[,i])
+}
+
+admin2_std <- admin2_std %>%
+  dplyr::select(admin2Pcod, ipc_p_2019_2023_std = ipc_p_2019_2023)
+
+###At the ADM3 level
+admin3_std <- admin3 %>% 
+  st_drop_geometry() %>% 
+  as.data.frame() 
+for(i in 10:dim(admin3_std)[2]) { ##NEED TO CHANGE THIS EVERYTIME YOU ADD MORE VARIABLES!!
+  admin3_std[,i] <- scale(admin3_std[,i], center = TRUE, scale = TRUE) %>% as.numeric()
+  #data[,i] <- (data[,i] - mean(data[,i])) / sd(data[,i])
+}
+
+pti_data <- admin3_std %>% 
+  left_join(., admin1_std, by="admin1Pcod") %>%
+  left_join(., admin2_std, by="admin2Pcod")
+
+admin1_name <- all_dta_export$admin1_Region %>%
+  dplyr::select(admin1Pcod, admin1Name)
+```
+Set weights
+```{r}
+pov_2021_22_std_wt <- 1
+ipc_p_2019_2023_std_wt <- 1
+wrsi_90_long_wt <- 1
+flood_pop_s_wt <- 1
+pop_dens_wp_wt <- 1
+city_mtr_wt <- -1 #negative because we would like to prioritize areas that are more accessible
+conf_count_wt <- -1 #negative because we would like to prioritize areas that are more accessible
+```
+
+```{r}
+pti_data <- pti_data %>%
+  mutate(pti_need = pov_2021_22_std_wt * pov_2021_22_std + ipc_p_2019_2023_std_wt * ipc_p_2019_2023_std + wrsi_90_long_wt * wrsi_90_long + flood_pop_s_wt * flood_pop_s, 
+         pti_access = pop_dens_wp_wt * pop_dens_wp + city_mtr_wt * city_mtr + conf_count_wt * conf_count) %>% 
+  mutate(pti_need = as.numeric(scale(pti_need, center = TRUE, scale = TRUE)),
+         pti_access = as.numeric(scale(pti_access, center = TRUE, scale = TRUE))) 
+```
+## Save PTI data as CSV
+
+```{r}
+pti_data %>%
+  write_csv(here::here("data-clean","pti-data.csv"))
+```

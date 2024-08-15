@@ -1,0 +1,65 @@
+---
+title: "PTI data compillation"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r eval = TRUE, echo = FALSE}
+conflictRules("tidyr", mask.ok = c("extract"))
+conflictRules("dplyr", mask.ok = c("filter", "lag", "select"))
+pacman::p_load(here, sf, tidyverse, writexl, janitor, openxlsx)
+
+
+admin <- readRDS(here("data-clean","bounds.rds")) 
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+from_pti_fldr <- here::here("data-clean")
+```
+
+## Load all PTI datasets together
+```{r}
+#get the list of clean data files
+list.files(path="./data-clean", pattern=".rds", all.files=TRUE)
+
+all_dta <- 
+  c("1-poverty.rds",
+    "2-food-insec.rds",
+    "3-fathom.rds",
+    "9-wrsi.rds",
+    "5-population.rds",
+    "6-accessibility.rds",
+    "7-conflict.rds"
+  ) %>%
+  map( ~ file.path(from_pti_fldr, .x) %>% 
+         read_rds() %>% 
+         list() %>% 
+         set_names(.x)) %>% 
+  unlist(recursive = F)
+```
+
+## Merge all data together
+
+```{r}
+all_dta_export <- admin %>%
+  imap(~{
+  type <- .y
+
+from <- 
+      .x %>% 
+      st_drop_geometry() %>% 
+      as_tibble() %>% 
+      mutate(year = NA_real_) %>% 
+      arrange_at(vars(any_of(str_c("admin", 0:5,"Pcod"))))
+
+names <- .x %>% st_drop_geometry() %>% names()
+
+list(from) %>%
+      append(all_dta %>% map(type)) %>% ##append elements in all_dta[[type]] to the original list.
+      keep(.p = function(x) !is.null(x)) %>% ##drop elements that are null.
+      reduce(inner_join, by = names) ##merge all elements by names
+}) 
+```
+Save the master dataset
+```{r}
+all_dta_export %>%
+  write_rds(here::here("data-clean","master_data.rds"), compress = "gz")
+```

@@ -1,0 +1,64 @@
+---
+title: "Food insecurity"
+output: html_document
+date: "2024-07-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(here::here("vignettes","0.set_path.R"))
+pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2,raster,terra,exactextractr,readxl,tmap)
+bounds <- read_rds(here::here("data-clean","bounds.rds"))
+```
+
+```{r}
+mt <- read_csv(here::here("data-clean","admin2_ipc_name_mt_ner.csv"))  %>%
+  dplyr::select(adm2_pcod2, adm2_name, admin2Pcod, admin2Name) %>%
+ distinct()
+```
+
+Get historical data
+```{r}
+food_insec_dta <-
+  readxl::read_xlsx(here::here("data-raw","cadre_harmonise","cadre_harmonise_caf_ipc.xlsx")) %>%
+  filter(adm0_pcod3 %in% "NER" & 
+           reference_year <= 2023 &
+           reference_year >= 2019 &
+           chtype == "current") %>%
+  left_join(., mt) %>%
+  group_by(admin2Pcod, reference_year, exercise_label) %>%
+  summarise(phase35 = sum(phase35),
+            population = sum(population)) 
+
+food_insec_dta %>%
+  group_by(admin2Pcod, reference_year, exercise_label) %>%
+ filter(reference_year == 2023 & exercise_label == "Jan-May")  %>%
+  summarise(phase35 = sum(phase35, rm.na=TRUE),
+            population = sum(population, rm.na=TRUE)) %>%
+  group_by() %>%
+  summarise(phase35 = sum(phase35, rm.na=TRUE),
+            population = sum(population, rm.na=TRUE)) 
+```
+
+Take the average over the past five years
+```{r}
+food_insec_dta_adm2 <- food_insec_dta %>%
+  group_by(admin2Pcod) %>%
+  summarise(phase35_2019_2023 = mean(phase35, rm.na=TRUE),
+            population_2019_2023 = mean(population, rm.na=TRUE)) %>%
+  mutate(ipc_p_2019_2023 = (phase35_2019_2023 /population_2019_2023)*100) %>%
+  dplyr::select(admin2Pcod, phase35_2019_2023, population_2019_2023, ipc_p_2019_2023)
+  
+food_out_dta_adm2 <- bounds$admin2_District %>%
+   left_join(., food_insec_dta_adm2)
+```
+
+Save
+```{r}
+food_out <- list(
+  admin2_District = st_drop_geometry(food_out_dta_adm2)
+)
+food_out %>% 
+  write_rds(here::here("data-clean", "2-food-insec.rds"), compress = 'gz')
+```
+

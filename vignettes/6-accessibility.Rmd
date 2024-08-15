@@ -1,0 +1,52 @@
+---
+title: "Accessibility"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r setup, include=FALSE}
+pacman::p_load(sf,gdistance,exactextractr,dplyr,readxl)
+source(here::here("vignettes","0.set_path.R"))
+source(here::here("R","accessibility_function.R"))
+
+ISO <- "NER"
+
+sf <- read_rds(here::here("data-clean","bounds.rds"))
+```
+Compute travel time to cities based on the friction map
+```{r, echo=FALSE, eval=TRUE}
+extent_list<-extent(pop)
+transition.matrix.exists.flag<-0
+for (surface_type in c("motorized","walking_only")){
+  friction.surface.filename<-paste0(dir_input_gl,"/accessibility/weiss_etal_2020/2020_",surface_type,"_friction_surface.geotiff")
+  point.filename<-here::here("data-raw","city_points_50k.csv")
+  T.filename<-paste0(dir_input_gl,"/accessibility/weiss_etal_2020/",ISO,"_",surface_type,"_study_area_T.rds")
+  T.GC.filename<-paste0(dir_input_gl,"/accessibility/weiss_etal_2020/",ISO,"_",surface_type,"_study_area_T_GC.rds")
+  output.filename<-here::here("data-clean",paste0(ISO,"_",surface_type,"_travel_time_to_city_50k.tif"))
+  compute_accesssibility(extent_list,
+                         transition.matrix.exists.flag,
+                         friction.surface.filename,
+                         point.filename,
+                         T.filename,
+                         T.GC.filename,
+                         output.filename)
+}
+```
+
+```{r}
+pop <- raster(here::here("data-raw","population","worldpop","NER_population_v1_0_gridded_fact10.tif"))
+cellStats(pop, stat="sum")
+pop[is.na(pop[])] <- 0
+
+city_motororized<-raster(here::here("data-clean",paste0(ISO,"_motorized_travel_time_to_city_50k.tif"))) %>% 
+  resample(., pop, method="ngb") %>% #resample to adjust to pop
+  crop(.,  pop) #crop
+
+# calculate the zonal stats (ADM4)
+zonal_stats <-sf$admin3_Commune %>% 
+  mutate(city_mtr=exact_extract(city_motororized, ., fun="weighted_mean", weights=pop))
+
+list(admin3_Commune = zonal_stats %>%
+       st_drop_geometry()) %>% 
+  write_rds(here::here("data-clean","6-accessibility.rds"), compress = "gz")
+```

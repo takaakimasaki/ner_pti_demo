@@ -1,0 +1,133 @@
+---
+title: "wrsi"
+output: html_document
+date: "2023-03-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+source(here::here("vignettes","0.set_path.R"))
+pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2,raster,terra,exactextractr,readxl,tmap)
+crs_utm <- "+proj=aea +lat_0=1 +lon_0=20 +lat_1=-19 +lat_2=21 +x_0=0 +y_0=0 +ellps=clrk66 +units=m +no_defs"
+
+bounds <- read_rds(here::here("data-clean","bounds.rds"))
+e <- bounds$admin0_Country %>%
+  st_transform(crs_utm) %>%
+  extent(.)
+```
+## WRSI
+Load all WRSI datasets and stack in SpatRaster. To run this chunk, you first need to download all WRSI datasets from https://edcftp.cr.usgs.gov/project/fews/dekadal/africa_west/. 
+
+```{r, eval=FALSE}
+file_dir <- paste0(dir_input_gl,"/","fews_net/WRSI","/")
+files <- Sys.glob(file.path(file_dir, "*do.tif"))
+n = 0
+for(f in files) {
+  n <- n + 1
+            if(n==1) {
+              r <- raster::raster(f) %>%
+                raster::calc(function(x) ifelse(x==254 | x==253, NA, x)) %>%
+                raster::crop(., e) %>%
+                rast()
+              var_name <- f %>% basename() %>% gsub('do.tif','',.)
+              names(r) <- var_name
+            }
+            if(n>1) {
+              r2 <- raster::raster(f) %>%
+                raster::calc(function(x) ifelse(x==254 | x==253, NA, x)) %>%
+                raster::crop(., e) %>%
+                rast()
+              var_name <- f %>% basename() %>% gsub('do.tif','',.)
+              names(r2) <- var_name
+              r <- c(r, r2)
+            }
+}
+r %>%
+  write_rds(here::here("data-clean","wrsi.rds"),compress="gz")
+```
+
+Analysis at the ADM3 level - compute zonal statistics
+```{r}
+zonal_stats <- bounds$admin3_Commune %>%
+  st_transform(crs_utm) %>%
+  exact_extract(r, ., fun="mean")
+
+wrsi_wide <- bounds$admin3_Commune %>%
+  st_drop_geometry() %>%
+  as.data.frame() %>%
+  c(., zonal_stats) 
+```
+
+```{r}
+wrsi_long <- wrsi_wide %>% 
+  splitstackshape::merged.stack(.,
+                                id.vars = "admin3Pcod",
+                                var.stubs = c("mean.w"),
+                                sep = ".w",
+                                keep.all = TRUE) %>%
+  mutate(dekad = as.numeric(.time_1),
+         wrsi = mean.w) %>%
+  dplyr::select(admin3Pcod, dekad, wrsi) %>%
+  arrange(admin3Pcod, dekad, wrsi) 
+
+loc_name <- wrsi_wide %>%
+  as.data.frame() %>%
+  dplyr::select(admin1Pcod, admin2Pcod, admin3Pcod, admin3Name)
+
+wrsi_long <- wrsi_long %>%
+  left_join(., loc_name) %>%
+  filter(!is.na(admin1Pcod)) %>%
+  arrange(admin1Pcod, admin2Pcod, admin3Pcod, admin3Name,dekad) 
+```
+
+Compute a drought trigger used by the cash transfer team. The way we do it is the following:
+-We look at the last dekad of October which means dekad = 30
+-The current pilot trigger uses a "threshold for “drought” in WRSI at 90% and 75% (two different drought levels) compared to the long-term median WRSI for the last dekad of October.
+```{r, echo=FALSE}
+wrsi_long$dekad_last_2 <- wrsi_long$dekad %% 100
+table(wrsi_long$dekad_last_2)
+
+wrsi_long_30 <- wrsi_long %>%
+  filter(dekad_last_2 == 30)
+
+wrsi_base <- data.frame(matrix(ncol = 4, nrow = 0))
+colnames(wrsi_base ) <- c("admin3Pcod","year","wrsi_75","wrsi_90")
+
+for(y in 2:22) {
+#y <- 2
+v = y*100 + 30 ##note that dekad is yy-mm where yy takes the value of 2 through 22
+median <- wrsi_long_30 %>%
+  filter(dekad != v) %>%
+  group_by(admin3Pcod) %>%
+  summarise(median = median(wrsi)) #get the median of the value of WRSI for the last dekad of October
+
+trigger <- wrsi_long_30 %>%
+  left_join(., median) %>%
+  filter(dekad == v) %>% #look at the value of WRSI for the last dekad of October for that particular year
+  mutate(wrsi_p = wrsi/median,
+         wrsi_75 = ifelse(wrsi_p < 0.75, 1, 0),
+         wrsi_90 = ifelse(wrsi_p < 0.9, 1, 0),
+         year = 2000 + y) %>%
+  dplyr::select(admin3Pcod, year, wrsi_75, wrsi_90)
+wrsi_base <- rbind(wrsi_base, trigger)
+}
+```
+Obtain drought trigger only for 2022 and also the avg. for the last decade
+```{r, echo=FALSE}
+wrsi_2022 <- wrsi_base %>%
+  filter(year == 2022) %>%
+  dplyr::select(admin3Pcod, wrsi_75, wrsi_90)
+wrsi_2013_2022 <- wrsi_base %>%
+  filter(year > 2012) %>%
+  group_by(admin3Pcod) %>%
+  summarise(wrsi_75_long = mean(wrsi_75),
+            wrsi_90_long = mean(wrsi_90)) %>%
+  ungroup()
+
+list(admin3_Commune = bounds$admin3_Commune %>% 
+       left_join(., wrsi_2022) %>%
+       left_join(., wrsi_2013_2022) %>%
+       st_drop_geometry()) %>%
+  write_rds(here("data-clean", "4-wrsi.rds"), compress = 'gz')
+```

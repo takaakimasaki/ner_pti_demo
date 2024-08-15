@@ -1,0 +1,100 @@
+---
+title: "Conflict"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r eval = TRUE, echo = FALSE}
+conflictRules("tidyr", mask.ok = c("extract"))
+conflictRules("dplyr", mask.ok = c("filter", "lag", "select"))
+pacman::p_load(sf, raster, dplyr, tidyverse, exactextractr, devaccess, readxl, here)
+source(here::here("vignettes/0.set_path.R"))
+utm_crs = 32735
+bounds <- read_rds(here("data-clean","bounds.rds"))
+acled_key <- "xxx"
+```
+
+Load conflict data using ACLED API
+```{r, eval=FALSE}
+acled <-
+  acled.api::acled.api(email.address = "xxx",
+                       access.key = acled_key,
+                       start.date = "2019-01-01",
+                       end.date = "2023-12-31",
+                       country = "Niger",
+                       all.variables = TRUE) ##this takes seconds to run btw
+table(acled$geo_precision)
+
+acled <- acled %>%
+  filter(geo_precision<3) %>% ##only keep those events with good geo precision
+              st_as_sf(crs = 4326,
+                       agr = "constant",
+                       coords = c("longitude", "latitude")) %>%
+  filter(event_type=="Battles" | event_type=="Explosions/Remote violence" | event_type=="Violence against civilians")
+
+acled %>% 
+  write_rds(here::here("data-raw","conflict","acled_2019-2023.rds"), compress = "gz")
+```
+Look at the conflict trend
+```{r}
+acled <- read_rds(here::here("data-raw","conflict","acled_2019-2023.rds"))
+acled %>%
+  st_drop_geometry() %>%
+  mutate(n = 1) %>%
+  group_by(year) %>%
+  summarise(n = sum(n)) %>%
+  ggplot(., aes(x = year, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Year", y = "Number of conflicts", title = "Bar Graph Title")
+  
+```
+
+Calculate the total number of points by polygon.
+```{r}
+conflict <- bounds %>%
+  imap(~{
+    by_geom <- .x 
+    group <- colnames(by_geom)[1]
+    colnames(by_geom)
+    devaccess::count_pts(sf=by_geom,
+          pts=acled,
+          id=group)
+  })
+
+conflict_p <-  bounds %>%
+  imap(~{
+    by_geom <- .x
+    group <- colnames(by_geom)[1]
+    devaccess::cal_pop_share(sf=by_geom,
+                             pts=acled,
+                             pop=pop,
+                             epsg_utm = utm_crs,
+                             dist = 5000,
+                             id=group)
+  })
+
+```
+
+merge with shapefile
+```{r}
+conflict_out <- bounds %>%
+  imap(~{
+    by_geom <- .x
+    by_geom_2 <- conflict[[.y]]
+    by_geom_3 <- conflict_p[[.y]]
+    by_geom <- by_geom %>%
+      left_join(., by_geom_2) %>%
+      left_join(., by_geom_3) %>%
+      rename(conf_count = count,
+             conf_pop_buffer = pop_buffer,
+             conf_share = share) %>%
+      mutate(conf_count = ifelse(is.na(conf_count),0,conf_count),
+             conf_pop_buffer = ifelse(is.na(conf_pop_buffer),0,conf_pop_buffer),
+             conf_share = ifelse(is.na(conf_share),0,conf_share)) %>%
+  st_drop_geometry()
+      })
+
+conflict_out %>%
+  write_rds(here::here("data-clean", "7-conflict.rds"), compress = "gz")
+```
+

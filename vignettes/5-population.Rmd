@@ -1,0 +1,29 @@
+---
+title: "Population density"
+output: html_document
+date: "2023-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(here::here("vignettes","0.set_path.R"))
+pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2, raster, exactextractr)
+sf <- read_rds(here::here("data-clean","bounds.rds"))
+pop_wp <- terra::rast(here::here("data-raw","population","worldpop","NER_population_v1_0_gridded.tif"))
+```
+Compute population per km2 based on WorldPop
+```{r}
+pop_dens_wp <- pop_wp/terra::cellSize(pop_wp, unit="km")
+pop_out <- sf %>%
+  imap(~{
+    by_geom <- .x
+    by_geom %>%
+      mutate(pop_wp = exact_extract(pop_wp, ., fun="sum"), #sum of population
+             pop_dens_wp = exact_extract(pop_dens_wp, ., fun="mean") # population denisty per km2
+             ) %>%
+      st_drop_geometry()
+  })
+
+pop_out %>%
+  write_rds(here::here("data-clean","5-population.rds"), compress = "gz")
+```

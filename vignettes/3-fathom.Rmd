@@ -1,0 +1,46 @@
+---
+title: "Flood"
+output: html_document
+date: "2024-07-29"
+---
+
+
+```{r eval = TRUE, echo = FALSE}
+username <- Sys.info()[7]
+source("vignettes/0.set_path.R")
+pacman::p_load(here,sf,raster,dplyr,tidyverse,exactextractr,terra,tmap,devdisaster)
+
+sf <- read_rds(here::here("data-clean","bounds.rds"))$admin3_Commune
+pop <- raster(here::here("data-raw","population","worldpop","NER_population_v1_0_gridded.tif"))
+```
+
+Load flood data and generate a new dataset that takes on the value of 1 if expected flood depth is above 15cm, 0 otherwise. 
+```{r, eval=FALSE}
+depth <- 0.15
+flood_fu <- terra::rast(here::here("data-raw","flood","fathom","Niger","fluvial_undefended","FU_1in100.tif")) %>%
+  terra::app(function(x) ifelse(x>=999 | x < depth, 0, 1))
+flood_fd <- terra::rast(here("data-raw","flood","fathom","Niger","fluvial_defended","FD_1in100.tif")) %>%
+  terra::app(function(x) ifelse(x>=999 | x < depth, 0, 1))
+flood_p <- terra::rast(here("data-raw","flood","fathom","Niger","pluvial","P_1in100.tif")) %>%
+  terra::app(function(x) ifelse(x>=999 | x < depth, 0, 1))
+flood <- flood_fu + flood_fd + flood_p
+flood %>% writeRaster(here::here("data-clean","flood.tif"))
+```
+
+```{r}
+flood <- raster(here::here("data-clean","flood.tif"))
+
+#calculate % of people exposed to flood risks
+flood_risk <- devdisaster::calc_fathom_flood_risk(sf,pop,flood,1,resample = FALSE)
+
+sf <- sf %>%
+  mutate(id = seq(1:dim(sf)[1])) %>%
+  left_join(., flood_risk, by="id") 
+
+flood_out <- list(
+    admin3_Commune = sf %>%
+      st_drop_geometry() %>%
+      dplyr::select(-id, -pop)
+)
+flood_out %>% write_rds(here("data-clean", "3-fathom.rds"), compress = 'gz')
+```
