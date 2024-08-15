@@ -9,11 +9,11 @@ Load necessary packages and data
 knitr::opts_chunk$set(echo = TRUE)
 source(here::here("vignettes","0.set_path.R"))
 pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2, raster, exactextractr, readxl)
-sf <- read_rds(here::here("data-clean","bounds.rds"))
-poverty_2021_22 <- read_xls(here::here("data-raw","poverty","pov_regionale.xls"))
+sf <- read_rds(here::here("data-clean","bounds.rds")) #shapefile
+poverty_2021_22 <- read_xls(here::here("data-raw","poverty","pov_regionale.xls")) #regional poverty rate computed at the ADM1 level based on EHCVM 2021/22 
 ```
 
-Merge poverty data from 2021/22 at the ADM1 level
+Merge poverty data from EHCVM 2021/22  at the ADM1 level
 ```{r}
 #use this excel sheet to match the location names between the shapefile and dataset
 mt <- read_xlsx(here::here("data-raw","poverty","mt.xlsx"),sheet="adm1_2021_22")
