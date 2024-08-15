@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 source(here::here("vignettes","0.set_path.R"))
 pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2, raster, exactextractr, readxl)
 sf <- read_rds(here::here("data-clean","bounds.rds"))
-
 poverty_2021_22 <- read_xls(here::here("data-raw","poverty","pov_regionale.xls"))
 ```
 
