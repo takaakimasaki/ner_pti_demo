@@ -11,13 +11,14 @@ pacman::p_load(here,sf,dplyr,tidyverse,leaflet,sfheaders,s2,raster,terra,exactex
 bounds <- read_rds(here::here("data-clean","bounds.rds"))
 ```
 
+Load file that matches location names between data from Cadre Harmonise and shapefile
 ```{r}
 mt <- read_csv(here::here("data-clean","admin2_ipc_name_mt_ner.csv"))  %>%
   dplyr::select(adm2_pcod2, adm2_name, admin2Pcod, admin2Name) %>%
  distinct()
 ```
 
-Get historical data
+Get historical data of food insecurity from Cadre Harmonise
 ```{r}
 food_insec_dta <-
   readxl::read_xlsx(here::here("data-raw","cadre_harmonise","cadre_harmonise_caf_ipc.xlsx")) %>%
