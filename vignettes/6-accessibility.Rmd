@@ -32,7 +32,7 @@ for (surface_type in c("motorized","walking_only")){
                          output.filename)
 }
 ```
-
+Compute the population-weighted mean of travel time to cities by ADM3
 ```{r}
 pop <- raster(here::here("data-raw","population","worldpop","NER_population_v1_0_gridded_fact10.tif"))
 cellStats(pop, stat="sum")
