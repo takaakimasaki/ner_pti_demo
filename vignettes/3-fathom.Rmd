@@ -27,6 +27,7 @@ flood <- flood_fu + flood_fd + flood_p
 flood %>% writeRaster(here::here("data-clean","flood.tif"))
 ```
 
+Compute % of people in areas with the expected flood depth of 15cm or higher for a return period of 100 years
 ```{r}
 flood <- raster(here::here("data-clean","flood.tif"))
 
