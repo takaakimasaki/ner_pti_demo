@@ -47,7 +47,7 @@ r %>%
   write_rds(here::here("data-clean","wrsi.rds"),compress="gz")
 ```
 
-Analysis at the ADM3 level - compute zonal statistics
+Compute mean of WRSI by ADM3
 ```{r}
 zonal_stats <- bounds$admin3_Commune %>%
   st_transform(crs_utm) %>%
@@ -58,7 +58,7 @@ wrsi_wide <- bounds$admin3_Commune %>%
   as.data.frame() %>%
   c(., zonal_stats) 
 ```
-
+Change data from wide to long format
 ```{r}
 wrsi_long <- wrsi_wide %>% 
   splitstackshape::merged.stack(.,
